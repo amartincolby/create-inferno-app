@@ -1,3 +1,4 @@
+import React from 'react';
 import dva from 'dva';
 import createHistory from 'history/createHashHistory';
 import ky from 'ky';

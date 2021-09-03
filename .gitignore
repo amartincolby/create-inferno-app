@@ -8,10 +8,7 @@ my-app*
 template/src/__tests__/__snapshots__/
 lerna-debug.log
 npm-debug.log*
-.idea
 yarn-debug.log*
 yarn-error.log*
 /.changelog
-
-*.orig
-package-lock.json
+.npm/

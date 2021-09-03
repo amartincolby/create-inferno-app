@@ -3,6 +3,7 @@
     "dva": "2.4.0",
     "history": "4.7.2",
     "ky": "0.3.0",
-    "inferno": "latest"
+    "react": "latest",
+    "react-dom": "latest"
   }
 }

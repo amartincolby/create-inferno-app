@@ -1,6 +1,6 @@
 node_modules/
 build
 my-app*
-packages/inferno-scripts/template
-packages/inferno-scripts/fixtures
+packages/react-scripts/template
+packages/react-scripts/fixtures
 fixtures/

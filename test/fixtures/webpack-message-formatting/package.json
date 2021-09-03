@@ -1,6 +1,7 @@
 {
   "dependencies": {
-    "inferno": "latest"
+    "react": "latest",
+    "react-dom": "latest"
   },
   "browserslist": [
     ">0.2%"

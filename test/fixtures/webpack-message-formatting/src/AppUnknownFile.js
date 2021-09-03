@@ -1,4 +1,4 @@
-import { Component } from 'inferno';
+import React, { Component } from 'react';
 import DefaultExport from './ThisFileSouldNotExist';
 
 class App extends Component {

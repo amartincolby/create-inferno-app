@@ -1,4 +1,4 @@
-import { Component } from 'inferno';
+import React, { Component } from 'react';
 import myImport from '../OutOfScopeImport';
 
 class App extends Component {

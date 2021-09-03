@@ -15,18 +15,18 @@ cd "$(dirname "$0")"
 # App temporary location
 # http://unix.stackexchange.com/a/84980
 temp_app_path=`mktemp -d 2>/dev/null || mktemp -d -t 'temp_app_path'`
-custom_registry_url=http://localhost:4873
-original_npm_registry_url=`npm get registry`
-original_yarn_registry_url=`yarn config get registry`
+
+# Load functions for working with local NPM registry (Verdaccio)
+source local-registry.sh
 
 function cleanup {
   echo 'Cleaning up.'
   cd "$root_path"
   # Uncomment when snapshot testing is enabled by default:
-  # rm ./packages/inferno-scripts/template/src/__snapshots__/App.test.js.snap
+  # rm ./packages/react-scripts/template/src/__snapshots__/App.test.js.snap
   rm -rf "$temp_app_path"
-  npm set registry "$original_npm_registry_url"
-  yarn config set registry "$original_yarn_registry_url"
+  # Restore the original NPM and Yarn registry URLs and stop Verdaccio
+  stopLocalRegistry
 }
 
 # Error messages are redirected to stderr
@@ -64,10 +64,10 @@ cd ..
 root_path=$PWD
 
 # Make sure we don't introduce accidental references to PATENTS.
-EXPECTED='packages/inferno-error-overlay/fixtures/bundle.mjs
-packages/inferno-error-overlay/fixtures/bundle.mjs.map
-packages/inferno-error-overlay/fixtures/bundle_u.mjs
-packages/inferno-error-overlay/fixtures/bundle_u.mjs.map
+EXPECTED='packages/react-error-overlay/fixtures/bundle.mjs
+packages/react-error-overlay/fixtures/bundle.mjs.map
+packages/react-error-overlay/fixtures/bundle_u.mjs
+packages/react-error-overlay/fixtures/bundle_u.mjs.map
 tasks/e2e-simple.sh'
 ACTUAL=$(git grep -l PATENTS)
 if [ "$EXPECTED" != "$ACTUAL" ]; then
@@ -82,77 +82,69 @@ then
 fi
 
 # Bootstrap monorepo
-yarn
+npm install
 
-# Start local registry
-tmp_registry_log=`mktemp`
-(cd && nohup npx verdaccio@3.8.2 -c "$root_path"/tasks/verdaccio.yaml &>$tmp_registry_log &)
-# Wait for `verdaccio` to boot
-grep -q 'http address' <(tail -f $tmp_registry_log)
-
-# Set registry to local registry
-npm set registry "$custom_registry_url"
-yarn config set registry "$custom_registry_url"
-
-# Login so we can publish packages
-(cd && npx npm-auth-to-token@1.0.0 -u user -p password -e user@example.com -r "$custom_registry_url")
+# Start the local NPM registry
+startLocalRegistry "$root_path"/tasks/verdaccio.yaml
 
 # Lint own code
-./node_modules/.bin/eslint --max-warnings 0 packages/babel-preset-inferno-app/
-./node_modules/.bin/eslint --max-warnings 0 packages/create-inferno-app/
-./node_modules/.bin/eslint --max-warnings 0 packages/eslint-config-inferno-app/
-./node_modules/.bin/eslint --max-warnings 0 packages/inferno-dev-utils/
-./node_modules/.bin/eslint --max-warnings 0 packages/inferno-scripts/
-cd packages/inferno-error-overlay/
+./node_modules/.bin/eslint --max-warnings 0 packages/babel-preset-react-app/
+./node_modules/.bin/eslint --max-warnings 0 packages/confusing-browser-globals/
+./node_modules/.bin/eslint --max-warnings 0 packages/create-react-app/
+./node_modules/.bin/eslint --max-warnings 0 packages/eslint-config-react-app/
+./node_modules/.bin/eslint --max-warnings 0 packages/react-dev-utils/
+./node_modules/.bin/eslint --max-warnings 0 packages/react-error-overlay/src/
+./node_modules/.bin/eslint --max-warnings 0 packages/react-scripts/
 
-./node_modules/.bin/eslint --max-warnings 0 src/
-yarn test
-if [ $APPVEYOR != 'True' ]; then
-  # Flow started hanging on AppVeyor after we moved to Yarn Workspaces :-(
-  yarn flow
+npm test -w react-error-overlay
+if [ "$AGENT_OS" != 'Windows_NT' ]; then
+  # Flow started hanging on Windows build agents
+  npm run flow -w react-error-overlay
 fi
-cd ../..
 
-cd packages/inferno-dev-utils/
-yarn test
-cd ../..
+npm test -w react-dev-utils
+
+npm test -w babel-plugin-named-asset-import
+
+npm test -w confusing-browser-globals
 
 # ******************************************************************************
-# First, test the create-inferno-app development environment.
+# First, test the create-react-app development environment.
 # This does not affect our users but makes sure we can develop it.
 # ******************************************************************************
 
 # Test local build command
-yarn build
+npm run build
 # Check for expected output
 exists build/*.html
 exists build/static/js/*.js
 exists build/static/css/*.css
+exists build/static/media/*.svg
 exists build/favicon.ico
 
 # Run tests with CI flag
-CI=true yarn test
+CI=true npm test
 # Uncomment when snapshot testing is enabled by default:
 # exists template/src/__snapshots__/App.test.js.snap
 
 # Test local start command
-yarn start --smoke-test
+npm start -- --smoke-test
 
-git clean -df
-./tasks/publish.sh --yes --force-publish=* --skip-git --cd-version=prerelease --exact --npm-tag=latest
+# Publish the monorepo
+publishToLocalRegistry
 
 # ******************************************************************************
-# Install inferno-scripts prerelease via create-inferno-app prerelease.
+# Install react-scripts prerelease via create-react-app prerelease.
 # ******************************************************************************
 
 # Install the app in a temporary location
 cd $temp_app_path
-npx create-inferno-app test-app
+npx create-react-app test-app
 
 # TODO: verify we installed prerelease
 
 # ******************************************************************************
-# Now that we used create-inferno-app to create an app depending on inferno-scripts,
+# Now that we used create-react-app to create an app depending on react-scripts,
 # let's make sure all npm scripts are in the working state.
 # ******************************************************************************
 
@@ -166,24 +158,24 @@ function verify_env_url {
   # Test relative path build
   awk -v n=2 -v s="  \"homepage\": \".\"," 'NR == n {print s} {print}' package.json > tmp && mv tmp package.json
 
-  yarn build
+  npm run build
   # Disabled until this can be tested
   # grep -F -R --exclude=*.map "../../static/" build/ -q; test $? -eq 0 || exit 1
   grep -F -R --exclude=*.map "\"./static/" build/ -q; test $? -eq 0 || exit 1
   grep -F -R --exclude=*.map "\"/static/" build/ -q; test $? -eq 1 || exit 1
 
-  PUBLIC_URL="/anabsolute" yarn build
+  PUBLIC_URL="/anabsolute" npm run build
   grep -F -R --exclude=*.map "/anabsolute/static/" build/ -q; test $? -eq 0 || exit 1
   grep -F -R --exclude=*.map "\"/static/" build/ -q; test $? -eq 1 || exit 1
 
   # Test absolute path build
   sed "2s/.*/  \"homepage\": \"\/testingpath\",/" package.json > tmp && mv tmp package.json
 
-  yarn build
+  npm run build
   grep -F -R --exclude=*.map "/testingpath/static/" build/ -q; test $? -eq 0 || exit 1
   grep -F -R --exclude=*.map "\"/static/" build/ -q; test $? -eq 1 || exit 1
 
-  PUBLIC_URL="https://www.example.net/overridetest" yarn build
+  PUBLIC_URL="https://www.example.net/overridetest" npm run build
   grep -F -R --exclude=*.map "https://www.example.net/overridetest/static/" build/ -q; test $? -eq 0 || exit 1
   grep -F -R --exclude=*.map "\"/static/" build/ -q; test $? -eq 1 || exit 1
   grep -F -R --exclude=*.map "testingpath/static" build/ -q; test $? -eq 1 || exit 1
@@ -191,11 +183,11 @@ function verify_env_url {
   # Test absolute url build
   sed "2s/.*/  \"homepage\": \"https:\/\/www.example.net\/testingpath\",/" package.json > tmp && mv tmp package.json
 
-  yarn build
+  npm run build
   grep -F -R --exclude=*.map "/testingpath/static/" build/ -q; test $? -eq 0 || exit 1
   grep -F -R --exclude=*.map "\"/static/" build/ -q; test $? -eq 1 || exit 1
 
-  PUBLIC_URL="https://www.example.net/overridetest" yarn build
+  PUBLIC_URL="https://www.example.net/overridetest" npm run build
   grep -F -R --exclude=*.map "https://www.example.net/overridetest/static/" build/ -q; test $? -eq 0 || exit 1
   grep -F -R --exclude=*.map "\"/static/" build/ -q; test $? -eq 1 || exit 1
   grep -F -R --exclude=*.map "testingpath/static" build/ -q; test $? -eq 1 || exit 1
@@ -216,7 +208,7 @@ function verify_module_scope {
   echo "import sampleJson from '../sample'" | cat - src/App.js > src/App.js.temp && mv src/App.js.temp src/App.js
 
   # Make sure the build fails
-  yarn build; test $? -eq 1 || exit 1
+  npm run build; test $? -eq 1 || exit 1
   # TODO: check for error message
 
   rm sample.json
@@ -230,20 +222,21 @@ function verify_module_scope {
 cd test-app
 
 # Test the build
-yarn build
+npm run build
 # Check for expected output
 exists build/*.html
 exists build/static/js/*.js
 exists build/static/css/*.css
+exists build/static/media/*.svg
 exists build/favicon.ico
 
 # Run tests with CI flag
-CI=true yarn test
+CI=true npm test
 # Uncomment when snapshot testing is enabled by default:
 # exists src/__snapshots__/App.test.js.snap
 
 # Test the server
-yarn start --smoke-test
+npm start -- --smoke-test
 
 # Test environment handling
 verify_env_url
@@ -258,24 +251,25 @@ verify_module_scope
 # Eject...
 echo yes | npm run eject
 
+# Test ejected files were staged
+test -n "$(git diff --staged --name-only)"
+
 # Test the build
-yarn build
+npm run build
 # Check for expected output
 exists build/*.html
 exists build/static/js/*.js
 exists build/static/css/*.css
+exists build/static/media/*.svg
 exists build/favicon.ico
 
 # Run tests, overriding the watch option to disable it.
-# `CI=true yarn test` won't work here because `yarn test` becomes just `jest`.
-# We should either teach Jest to respect CI env variable, or make
-# `scripts/test.js` survive ejection (right now it doesn't).
-yarn test --watch=no
+npm test --watch=no
 # Uncomment when snapshot testing is enabled by default:
 # exists src/__snapshots__/App.test.js.snap
 
 # Test the server
-yarn start --smoke-test
+npm start -- --smoke-test
 
 # Test environment handling
 verify_env_url
